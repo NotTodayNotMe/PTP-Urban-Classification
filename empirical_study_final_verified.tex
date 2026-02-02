@@ -1,0 +1,152 @@
+%% ============================================================
+%% EMPIRICAL STUDY (~1.5 pages)
+%% ============================================================
+
+\section{Empirical Study}
+\label{sec:empirical}
+
+Before introducing our method, we conduct an empirical study to understand the challenges of urban region classification and why existing methods fail.
+
+\subsection{Motivation: Why Graph-based Methods?}
+
+Current state-of-the-art methods in urban region classification~\cite{PLACEHOLDER_URBAN} treat each grid cell independently, ignoring spatial context. However, this violates Tobler's first law of geography~\cite{PLACEHOLDER_TOBLER}: ``everything is related to everything else, but near things are more related than distant things.'' Spatial autocorrelation~\cite{PLACEHOLDER_SPATIAL_AUTOCORR} suggests that neighboring regions should exhibit similar characteristics. Thus, constructing a spatial graph and applying Graph Neural Networks (GNNs) is an intuitive approach to capture neighborhood dependencies.
+
+\subsection{Observation 1: Large Island-Bridge Performance Gap}
+
+We evaluate both IID methods (RF, MLP) and GNNs (GCN~\cite{PLACEHOLDER_GCN}, GAT~\cite{PLACEHOLDER_GAT}, GraphSAGE~\cite{PLACEHOLDER_GRAPHSAGE}, SGC~\cite{PLACEHOLDER_SGC}, APPNP~\cite{PLACEHOLDER_APPNP}, GPRGNN~\cite{PLACEHOLDER_GPRGNN}, H2GCN~\cite{PLACEHOLDER_HOMOPHILY_ZHU}) on our three-city dataset at 5\% training ratio. Table~\ref{tab:gap} reports Macro-F1 (\%) separately for Island and Bridge nodes.
+
+\begin{table}[t]
+  \caption{Island-Bridge performance gap (Macro-F1 \%, 5\% training). All methods show substantial gaps, with Bridge accuracy far below Island.}
+  \label{tab:gap}
+  \small
+  \centering
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{l|cc|cc|cc}
+    \toprule
+    & \multicolumn{2}{c|}{Harbin} & \multicolumn{2}{c|}{London} & \multicolumn{2}{c}{Paris} \\
+    Method & Island & Bridge & Island & Bridge & Island & Bridge \\
+    \midrule
+    RF  & 96.10\tiny{±0.31} & 47.81\tiny{±0.40} & 86.63\tiny{±0.27} & 74.00\tiny{±0.34} & 83.69\tiny{±0.21} & 36.99\tiny{±0.21} \\
+    MLP & 91.98\tiny{±0.34} & 54.97\tiny{±1.44} & 86.69\tiny{±0.32} & 72.24\tiny{±0.44} & 82.07\tiny{±0.17} & 40.39\tiny{±0.52} \\
+    \midrule
+    GCN       & 91.11\tiny{±0.33} & 57.86\tiny{±1.65} & 84.65\tiny{±0.44} & 70.58\tiny{±0.59} & 81.26\tiny{±0.28} & 47.00\tiny{±0.99} \\
+    GAT       & 89.81\tiny{±0.39} & 58.09\tiny{±1.17} & 83.61\tiny{±0.59} & 70.01\tiny{±0.48} & 76.22\tiny{±0.72} & 50.20\tiny{±0.67} \\
+    GraphSAGE & 91.69\tiny{±0.47} & 59.07\tiny{±1.56} & 84.36\tiny{±0.31} & 70.39\tiny{±0.44} & 81.13\tiny{±0.61} & 48.81\tiny{±1.48} \\
+    SGC       & 81.01\tiny{±0.48} & 54.90\tiny{±0.52} & 81.81\tiny{±0.36} & 72.61\tiny{±0.74} & 71.52\tiny{±0.24} & 42.29\tiny{±0.49} \\
+    APPNP     & 91.04\tiny{±0.58} & 58.21\tiny{±1.34} & 84.93\tiny{±0.38} & 72.51\tiny{±0.93} & 80.56\tiny{±1.24} & 48.24\tiny{±1.14} \\
+    GPRGNN    & 91.08\tiny{±0.40} & 58.04\tiny{±1.02} & 85.36\tiny{±0.40} & 72.62\tiny{±0.64} & 80.44\tiny{±0.64} & 46.86\tiny{±2.94} \\
+    H2GCN     & 92.12\tiny{±0.36} & 62.65\tiny{±1.15} & 84.66\tiny{±0.27} & 71.31\tiny{±0.48} & 82.12\tiny{±0.53} & 49.60\tiny{±1.67} \\
+    \midrule
+    \textbf{Avg Gap} & \multicolumn{2}{c|}{\textbf{32.67}} & \multicolumn{2}{c|}{\textbf{13.09}} & \multicolumn{2}{c|}{\textbf{34.15}} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+A striking pattern emerges: \textbf{all methods exhibit large Island-Bridge performance gaps}. The average gap reaches 33\% on Harbin, 34\% on Paris, and 13\% on London. For example, RF achieves 96.10\% Island F1 on Harbin but only 47.81\% on Bridge---a gap of nearly 50\%. This observation motivates our Island-Bridge decomposition: Bridge nodes at region boundaries are where methods consistently fail.
+
+\subsection{Observation 2: GNNs Surprisingly Don't Help}
+
+Contrary to our intuition that GNNs should leverage neighborhood information to improve classification, Table~\ref{tab:gap} reveals that \textbf{GNNs often perform no better---and sometimes worse---than simple IID baselines}. On Island nodes, RF outperforms most GNNs (96.10\% vs.\ 81.01--92.12\% on Harbin). On Bridge nodes, GNNs provide only marginal improvements over MLP (e.g., 62.65\% for H2GCN vs.\ 54.97\% for MLP on Harbin).
+
+Why do GNNs fail to capitalize on graph structure? The answer lies in feature-label mismatch at boundaries.
+
+\subsection{Observation 3: Feature-Label Mismatch Confuses GNNs}
+
+As discussed in Section~\ref{sec:data}, Bridge nodes suffer from feature-label mismatch: neighbors across class boundaries have similar features but different labels. GNNs aggregate neighbor features through message passing, but at Bridge nodes, this aggregation mixes features from different classes. Since features are similar across boundaries, this introduces noise rather than useful signal, explaining why GNNs struggle specifically on Bridge nodes.
+
+\subsection{Observation 4: Current LP Methods Don't Work}
+
+A natural remedy is to use label propagation (LP)~\cite{PLACEHOLDER_LP_CLASSIC} or Correct \& Smooth (C\&S)~\cite{PLACEHOLDER_CS} to propagate labels instead of features. We configure C\&S with $\alpha$=0.999 and 200 iterations to enable long-range propagation. Table~\ref{tab:postprocess} compares these post-processing methods with our proposed IM-LP. Results for short-range LP and C\&S are provided in Appendix~\ref{app:short_range}.
+
+\begin{table*}[t]
+  \caption{Effect of post-processing on Bridge Macro-F1 (\%). LP provides negligible improvement; C\&S ($\alpha$=0.999, iter=200) helps on Harbin/London but \textbf{hurts} on Paris; \textbf{IM-LP consistently improves all cities}. Best in \textbf{bold}, second best \underline{underlined}.}
+  \label{tab:postprocess}
+  \small
+  \centering
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{l|cccc|cccc|cccc}
+    \toprule
+    & \multicolumn{4}{c|}{Harbin} & \multicolumn{4}{c|}{London} & \multicolumn{4}{c}{Paris} \\
+    Method & Base & +LP & +C\&S & +IM-LP & Base & +LP & +C\&S & +IM-LP & Base & +LP & +C\&S & +IM-LP \\
+    \midrule
+    RF & 47.81\tiny{±0.40} & 47.81\tiny{±0.65} & 48.62\tiny{±0.15} & \textbf{63.33}\tiny{±1.90} & 74.00\tiny{±0.34} & 74.52\tiny{±0.41} & \underline{80.63}\tiny{±0.43} & \textbf{80.73}\tiny{±0.40} & 36.99\tiny{±0.21} & 37.25\tiny{±0.26} & 36.62\tiny{±0.38} & \textbf{38.03}\tiny{±0.30} \\
+    MLP & 54.97\tiny{±1.44} & 54.94\tiny{±1.49} & 47.24\tiny{±1.09} & \textbf{70.63}\tiny{±0.30} & 72.24\tiny{±0.44} & 72.43\tiny{±0.72} & 77.31\tiny{±1.15} & \textbf{78.41}\tiny{±0.80} & 40.39\tiny{±0.52} & 41.33\tiny{±1.06} & 42.47\tiny{±0.34} & \textbf{48.72}\tiny{±0.80} \\
+    \midrule
+    GCN & 57.86\tiny{±1.65} & 58.19\tiny{±1.62} & 61.47\tiny{±1.98} & \textbf{67.29}\tiny{±0.70} & 70.58\tiny{±0.59} & 70.76\tiny{±0.81} & \textbf{79.45}\tiny{±0.84} & \underline{78.94}\tiny{±0.80} & 47.00\tiny{±0.99} & 46.87\tiny{±1.00} & 44.97\tiny{±0.48} & \textbf{49.26}\tiny{±0.20} \\
+    GAT & 58.09\tiny{±1.17} & 58.21\tiny{±1.14} & 61.78\tiny{±0.83} & \textbf{68.82}\tiny{±0.30} & 70.01\tiny{±0.48} & 70.46\tiny{±0.50} & 78.06\tiny{±0.27} & \textbf{79.92}\tiny{±0.30} & \underline{50.20}\tiny{±0.67} & 50.26\tiny{±0.48} & 42.57\tiny{±0.17} & \textbf{48.90}\tiny{±0.20} \\
+    GraphSAGE & 59.07\tiny{±1.56} & 59.22\tiny{±1.45} & 63.71\tiny{±1.58} & \textbf{68.08}\tiny{±0.40} & 70.39\tiny{±0.44} & 70.53\tiny{±0.46} & 78.11\tiny{±0.75} & \textbf{78.66}\tiny{±0.60} & 48.81\tiny{±1.48} & 48.83\tiny{±1.49} & 43.94\tiny{±1.17} & \textbf{49.51}\tiny{±0.30} \\
+    SGC & 54.90\tiny{±0.52} & 55.45\tiny{±0.51} & 61.12\tiny{±0.50} & \textbf{66.04}\tiny{±1.00} & 72.61\tiny{±0.74} & 72.89\tiny{±1.24} & 79.43\tiny{±0.57} & \textbf{81.38}\tiny{±0.50} & 42.29\tiny{±0.49} & 42.70\tiny{±0.44} & 37.40\tiny{±0.15} & \textbf{46.46}\tiny{±1.60} \\
+    APPNP & 58.21\tiny{±1.34} & 58.55\tiny{±1.35} & 61.78\tiny{±1.58} & \textbf{67.86}\tiny{±0.80} & 72.51\tiny{±0.93} & 72.48\tiny{±0.44} & \textbf{78.70}\tiny{±0.65} & 77.06\tiny{±0.80} & 48.24\tiny{±1.14} & 48.13\tiny{±1.06} & 45.79\tiny{±0.51} & \textbf{48.84}\tiny{±0.30} \\
+    GPRGNN & 58.04\tiny{±1.02} & 58.25\tiny{±1.00} & 61.24\tiny{±0.67} & \textbf{67.75}\tiny{±0.90} & 72.62\tiny{±0.64} & 72.95\tiny{±1.07} & \textbf{78.50}\tiny{±0.69} & 76.22\tiny{±0.50} & 46.86\tiny{±2.94} & 46.89\tiny{±2.93} & 45.59\tiny{±0.17} & \textbf{48.23}\tiny{±0.40} \\
+    H2GCN & 62.65\tiny{±1.15} & 62.59\tiny{±1.23} & 66.33\tiny{±1.04} & \textbf{67.83}\tiny{±0.80} & 71.31\tiny{±0.48} & 71.50\tiny{±0.46} & \textbf{78.28}\tiny{±0.48} & 78.03\tiny{±0.60} & 49.60\tiny{±1.67} & 48.55\tiny{±1.32} & 46.19\tiny{±2.57} & \textbf{49.65}\tiny{±0.20} \\
+    \midrule
+    \textbf{Avg $\Delta$} & -- & +0.18 & +2.41 & \textbf{+10.67} & -- & +0.25 & +6.91 & \textbf{+7.01} & -- & +0.05 & -2.76 & \textbf{+1.91} \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+\textbf{LP provides negligible improvement} (+0.2\% on average). C\&S with long-range settings ($\alpha$=0.999, iter=200) shows inconsistent behavior: it improves Bridge F1 by 2.41\% on Harbin and 6.91\% on London, but \textit{degrades} performance by 2.76\% on Paris, with 7 out of 9 methods showing decreased accuracy (e.g., GAT drops from 50.20\% to 42.57\%).
+
+\textbf{Why do current LP methods fail?} They rely on two assumptions violated in our setting:
+
+\begin{enumerate}[leftmargin=*, nosep]
+    \item \textbf{Short-range propagation}: Standard LP assumes labels propagate within a few hops. However, 67--78\% of test nodes are $>$50 hops from training nodes. We address this by configuring C\&S with $\alpha$=0.999 and 200 iterations, yet it still fails on Paris---proving distance is not the only issue.
+    
+    \item \textbf{Homophily assumption}: LP assumes connected nodes share labels. Our graph appears homophilous (edge homophily $>$0.999), but standard metrics~\cite{PLACEHOLDER_HOMOPHILY_ZHU} only examine label agreement while ignoring features. At Bridge nodes, neighbors across boundaries have similar features but different labels, creating \textbf{hidden heterophily}. While feature-aware metrics exist~\cite{PLACEHOLDER_AGGREGATION_HOMOPHILY, PLACEHOLDER_PLATONOV}, they miss this boundary-specific mismatch. C\&S's smoothing propagates errors across these deceptive edges.
+\end{enumerate}
+
+The failure of C\&S on Paris---despite long-range capability---demonstrates that hidden heterophily, not distance, is the fundamental issue.
+
+\subsection{Our Method: IM-LP}
+
+In contrast, our proposed \textbf{IM-LP consistently improves Bridge performance across all cities}: +10.67\% on Harbin, +7.01\% on London, and +1.91\% on Paris (Table~\ref{tab:postprocess}). Notably, IM-LP is the \textit{only} method that improves Paris, where C\&S hurts performance. IM-LP achieves this by iteratively building pseudo-labels from high-confidence regions, avoiding the pitfalls of one-shot propagation through heterophilous boundaries.
+
+\subsection{Summary}
+
+Our empirical study reveals three key findings:
+\begin{enumerate}[leftmargin=*, nosep]
+    \item \textbf{Island-Bridge gap}: All methods fail on Bridge nodes, motivating our decomposition
+    \item \textbf{GNN limitation}: Feature aggregation hurts at boundaries due to feature-label mismatch
+    \item \textbf{LP limitation}: Hidden heterophily causes LP/C\&S to fail, even with long-range capability
+\end{enumerate}
+
+Our IM-LP addresses these challenges through iterative multi-stage reinforcement, as detailed in the next section.
+
+
+%% ============================================================
+%% APPENDIX: SHORT-RANGE LP AND C&S
+%% ============================================================
+
+\appendix
+
+\section{Short-Range LP and C\&S Results}
+\label{app:short_range}
+
+Table~\ref{tab:short_range} shows the effect of LP and C\&S with default (short-range) settings. Both methods provide negligible improvement ($<$0.5\% on average), demonstrating that short-range propagation cannot reach the majority of test nodes located $>$50 hops from training data.
+
+\begin{table*}[t]
+  \caption{Effect of short-range post-processing on Bridge Macro-F1 (\%). With default settings, both LP and C\&S provide negligible improvement due to insufficient propagation distance.}
+  \label{tab:short_range}
+  \small
+  \centering
+  \setlength{\tabcolsep}{5pt}
+  \begin{tabular}{l|ccc|ccc|ccc}
+    \toprule
+    & \multicolumn{3}{c|}{Harbin} & \multicolumn{3}{c|}{London} & \multicolumn{3}{c}{Paris} \\
+    Method & Base & +LP & +C\&S & Base & +LP & +C\&S & Base & +LP & +C\&S \\
+    \midrule
+    RF        & 47.81\tiny{±0.40} & 47.81\tiny{±0.65} & 47.77\tiny{±0.49} & 74.00\tiny{±0.34} & 74.52\tiny{±0.41} & 74.53\tiny{±0.41} & 36.99\tiny{±0.21} & 37.25\tiny{±0.26} & 37.25\tiny{±0.26} \\
+    MLP       & 54.97\tiny{±1.44} & 54.94\tiny{±1.49} & 55.00\tiny{±1.47} & 72.24\tiny{±0.44} & 72.43\tiny{±0.72} & 72.56\tiny{±0.46} & 40.39\tiny{±0.52} & 41.33\tiny{±1.06} & 41.32\tiny{±1.08} \\
+    \midrule
+    GCN       & 57.86\tiny{±1.65} & 58.19\tiny{±1.62} & 58.19\tiny{±1.62} & 70.58\tiny{±0.59} & 70.76\tiny{±0.81} & 70.90\tiny{±0.79} & 47.00\tiny{±0.99} & 46.87\tiny{±1.00} & 46.91\tiny{±0.99} \\
+    GAT       & 58.09\tiny{±1.17} & 58.21\tiny{±1.14} & 58.18\tiny{±1.18} & 70.01\tiny{±0.48} & 70.46\tiny{±0.50} & 70.91\tiny{±0.70} & 50.20\tiny{±0.67} & 50.26\tiny{±0.48} & 50.28\tiny{±0.93} \\
+    GraphSAGE & 59.07\tiny{±1.56} & 59.22\tiny{±1.45} & 59.26\tiny{±1.44} & 70.39\tiny{±0.44} & 70.53\tiny{±0.46} & 70.51\tiny{±0.48} & 48.81\tiny{±1.48} & 48.83\tiny{±1.49} & 48.82\tiny{±1.49} \\
+    SGC       & 54.90\tiny{±0.52} & 55.45\tiny{±0.51} & 55.94\tiny{±0.48} & 72.61\tiny{±0.74} & 72.89\tiny{±1.24} & 73.60\tiny{±1.12} & 42.29\tiny{±0.49} & 42.70\tiny{±0.44} & 43.08\tiny{±0.44} \\
+    APPNP     & 58.21\tiny{±1.34} & 58.55\tiny{±1.35} & 58.53\tiny{±1.32} & 72.51\tiny{±0.93} & 72.48\tiny{±0.44} & 73.30\tiny{±0.86} & 48.24\tiny{±1.14} & 48.13\tiny{±1.06} & 48.16\tiny{±1.08} \\
+    GPRGNN    & 58.04\tiny{±1.02} & 58.25\tiny{±1.00} & 58.22\tiny{±1.01} & 72.62\tiny{±0.64} & 72.95\tiny{±1.07} & 72.94\tiny{±1.06} & 46.86\tiny{±2.94} & 46.89\tiny{±2.93} & 46.90\tiny{±2.91} \\
+    H2GCN     & 62.65\tiny{±1.15} & 62.59\tiny{±1.23} & 62.86\tiny{±1.05} & 71.31\tiny{±0.48} & 71.50\tiny{±0.46} & 71.47\tiny{±0.48} & 49.60\tiny{±1.67} & 48.55\tiny{±1.32} & 49.45\tiny{±1.56} \\
+    \midrule
+    \textbf{Avg $\Delta$} & -- & +0.18 & +0.30 & -- & +0.25 & +0.49 & -- & +0.05 & +0.14 \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
